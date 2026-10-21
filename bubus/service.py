@@ -818,7 +818,7 @@ class EventBus:
             pass
 
     async def wait_until_idle(self, timeout: float | None = None) -> None:
-        """Wait until idle, or return immediately if the bus has already been stopped."""
+        """Wait until the bus is idle or stopped."""
 
         if not self._is_running and self.event_queue is not None and self.event_queue._is_shutdown:  # pyright: ignore[reportPrivateUsage]
             return
@@ -830,16 +830,8 @@ class EventBus:
         remaining_timeout = timeout
 
         try:
-            # First wait for the queue to be empty
-            join_task = asyncio.create_task(self.event_queue.join())
-            await asyncio.wait_for(join_task, timeout=remaining_timeout)
-
-            # Update remaining timeout
-            if timeout is not None:
-                elapsed = asyncio.get_event_loop().time() - start_time
-                remaining_timeout = max(0, timeout - elapsed)
-
-            # Wait for idle state
+            # The run loop signals idle after draining the queue; stop() also
+            # sets this signal when aborting events that cannot finish queue.join().
             idle_task = asyncio.create_task(self._on_idle.wait())
             await asyncio.wait_for(idle_task, timeout=remaining_timeout)
 
@@ -849,7 +841,9 @@ class EventBus:
             await asyncio.sleep(0)  # Yield to event loop
 
             # Double-check we're truly idle - if new events came in, wait again
-            while not self._on_idle.is_set() or self.events_started or self.events_pending:
+            while self._is_running and (
+                not self._on_idle.is_set() or self.events_started or self.events_pending or self.event_queue.qsize()
+            ):
                 if timeout is not None:
                     elapsed = asyncio.get_event_loop().time() - start_time
                     remaining_timeout = max(0, timeout - elapsed)
