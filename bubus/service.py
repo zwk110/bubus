@@ -818,7 +818,10 @@ class EventBus:
             pass
 
     async def wait_until_idle(self, timeout: float | None = None) -> None:
-        """Wait until the event bus is idle (no events being processed and all handlers completed)"""
+        """Wait until idle, or return immediately if the bus has already been stopped."""
+
+        if not self._is_running and self.event_queue is not None and self.event_queue._is_shutdown:  # pyright: ignore[reportPrivateUsage]
+            return
 
         self._start()
         assert self._on_idle and self.event_queue, 'EventBus._start() must be called before wait_until_idle() is reached'
